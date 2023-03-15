@@ -12,6 +12,8 @@ import (
 	"github.com/evilsocket/opensnitch/daemon/firewall/config"
 	"github.com/evilsocket/opensnitch/daemon/log"
 	"github.com/evilsocket/opensnitch/daemon/ui/protocol"
+
+	// FIXME: use the non-deprecated package
 	"github.com/golang/protobuf/jsonpb"
 )
 
