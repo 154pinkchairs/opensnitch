@@ -2,7 +2,9 @@ package nftables
 
 import (
 	"strings"
+	"sync"
 
+	"github.com/evilsocket/opensnitch/daemon/firewall/common"
 	"github.com/evilsocket/opensnitch/daemon/firewall/config"
 	"github.com/evilsocket/opensnitch/daemon/firewall/iptables"
 	"github.com/evilsocket/opensnitch/daemon/firewall/nftables/exprs"
@@ -65,9 +67,10 @@ func (n *Nft) CreateSystemRule(chain *config.FwChain, logErrors bool) bool {
 }
 
 // AddSystemRules creates the system firewall from configuration.
-func (n *Nft) AddSystemRules(reload, backupExistingChains  bool) {
-	n.SysConfig.RLock()
-	defer n.SysConfig.RUnlock()
+func (n *Nft) AddSystemRules(reload, backupExistingChains bool) {
+	var mu sync.RWMutex
+	mu.RLock()
+	defer mu.RUnlock()
 
 	if n.SysConfig.Enabled == false {
 		log.Important("[nftables] AddSystemRules() fw disabled")
@@ -100,8 +103,9 @@ func (n *Nft) AddSystemRules(reload, backupExistingChains  bool) {
 // If force is false and the rule has not been previously added,
 // it won't try to delete the tables and chains. Otherwise it'll try to delete them.
 func (n *Nft) DeleteSystemRules(force, restoreExistingChains, logErrors bool) {
-	n.Lock()
-	defer n.Unlock()
+	var mu sync.Mutex
+	mu.Lock()
+	defer mu.Unlock()
 
 	if err := n.delRulesByKey(systemRuleKey); err != nil {
 		log.Warning("error deleting interception rules: %s", err)
@@ -116,9 +120,10 @@ func (n *Nft) DeleteSystemRules(force, restoreExistingChains, logErrors bool) {
 }
 
 // AddSystemRule inserts a new rule.
-func (n *Nft) AddSystemRule(rule *config.FwRule, chain *config.FwChain) (err4, err6 error) {
-	n.Lock()
-	defer n.Unlock()
+func (n *Nft) AddSystemRule(rule *config.FwRule, chain *config.FwChain) *common.FirewallError {
+	var mu sync.Mutex
+	mu.Lock()
+	defer mu.Unlock()
 	exprList := []expr.Any{}
 
 	for _, expression := range rule.Expressions {
@@ -134,5 +139,5 @@ func (n *Nft) AddSystemRule(rule *config.FwRule, chain *config.FwChain) (err4, e
 		}
 	}
 
-	return nil, nil
+	return nil
 }

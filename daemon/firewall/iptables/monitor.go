@@ -1,6 +1,8 @@
 package iptables
 
 import (
+	"sync"
+
 	"github.com/evilsocket/opensnitch/daemon/core"
 	"github.com/evilsocket/opensnitch/daemon/firewall/common"
 	"github.com/evilsocket/opensnitch/daemon/log"
@@ -8,7 +10,10 @@ import (
 
 // AreRulesLoaded checks if the firewall rules for intercept traffic are loaded.
 func (ipt *Iptables) AreRulesLoaded() bool {
-	var outMangle6 string
+	var (
+		outMangle6 string
+		rmu sync.RWMutex
+	)
 
 	outMangle, err := core.Exec("iptables", []string{"-n", "-L", "OUTPUT", "-t", "mangle"})
 	if err != nil {
@@ -23,7 +28,7 @@ func (ipt *Iptables) AreRulesLoaded() bool {
 	}
 
 	systemRulesLoaded := true
-	ipt.chains.RLock()
+	rmu.RLock()
 	if len(ipt.chains.Rules) > 0 {
 		for _, rule := range ipt.chains.Rules {
 			if chainOut4, err4 := core.Exec("iptables", []string{"-n", "-L", rule.Chain, "-t", rule.Table}); err4 == nil {
@@ -42,7 +47,7 @@ func (ipt *Iptables) AreRulesLoaded() bool {
 			}
 		}
 	}
-	ipt.chains.RUnlock()
+	rmu.RUnlock()
 
 	result := ipt.regexRulesQuery.FindString(outMangle) != "" &&
 		systemRulesLoaded

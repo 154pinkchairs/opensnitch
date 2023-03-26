@@ -5,7 +5,6 @@
 // The firewall rules defined by the user are reloaded in these cases:
 // - When the file system-fw.json changes.
 // - When the firewall rules are not present when listing them.
-//
 package config
 
 import (
@@ -20,30 +19,33 @@ import (
 // ExprValues holds the statements' options:
 // "Name": "ct",
 // "Values": [
-// {
-//   "Key":   "state",
-//   "Value": "established"
-// },
-// {
-//   "Key":   "state",
-//   "Value": "related"
-// }]
+//
+//	{
+//	  "Key":   "state",
+//	  "Value": "established"
+//	},
+//
+//	{
+//	  "Key":   "state",
+//	  "Value": "related"
+//	}]
 type ExprValues struct {
 	Key   string
 	Value string
 }
 
 // ExprStatement holds the definition of matches to use against connections.
-//{
-//	"Op": "!=",
-//	"Name": "tcp",
-//	"Values": [
-//		{
-//			"Key": "dport",
-// 			"Value": "443"
-//		}
-//	]
-//}
+//
+//	{
+//		"Op": "!=",
+//		"Name": "tcp",
+//		"Values": [
+//			{
+//				"Key": "dport",
+//				"Value": "443"
+//			}
+//		]
+//	}
 type ExprStatement struct {
 	Op     string        // ==, !=, ... Only one per expression set.
 	Name   string        // tcp, udp, ct, daddr, log, ...
@@ -57,21 +59,18 @@ type Expressions struct {
 
 // FwRule holds the fields of a rule
 type FwRule struct {
-	// we need to keep old fields in the struct. Otherwise when receiving a conf from the GUI, the legacy rules would be deleted.
-	Chain      string // TODO: deprecated, remove
-	Table      string // TODO: deprecated, remove
-	Parameters string // TODO: deprecated: remove
+	Chain      string `json:"chain,omitempty"`      // TODO: deprecated, remove
+	Table      string `json:"table,omitempty"`      // TODO: deprecated, remove
+	Parameters string `json:"parameters,omitempty"` // TODO: deprecated: remove
 
-	UUID             string
-	Description      string
-	Expressions      []*Expressions
-	Target           string
-	TargetParameters string
+	UUID             string         `json:"uuid"`
+	Description      string         `json:"description"`
+	Expressions      []*Expressions `json:"expressions"`
+	Target           string         `json:"target"`
+	TargetParameters string         `json:"target_parameters"`
 
-	Position uint64 `json:",string"`
-	Enabled  bool
-
-	*sync.RWMutex
+	Position uint64 `json:"position,string"`
+	Enabled  bool   `json:"enabled"`
 }
 
 // FwChain holds the information that defines a firewall chain.
@@ -95,10 +94,6 @@ func (fc *FwChain) IsInvalid() bool {
 	return fc.Name == "" || fc.Family == "" || fc.Table == ""
 }
 
-type rulesList struct {
-	Rule *FwRule
-}
-
 type chainsList struct {
 	Chains []*FwChain
 	Rule   *FwRule // TODO: deprecated, remove
@@ -106,16 +101,14 @@ type chainsList struct {
 
 // SystemConfig holds the list of rules to be added to the system
 type SystemConfig struct {
-	sync.RWMutex
-	SystemRules []*chainsList
-	Version     uint32
-	Enabled     bool
+	SystemRules []*chainsList `json:"chains_list"`
+	Version     uint32        `json:"versions"`
+	Enabled     bool          `json:"enabled"`
 }
 
 // Config holds the functionality to re/load the firewall configuration from disk.
 // This is the configuration to manage the system firewall (iptables, nftables).
 type Config struct {
-	sync.Mutex
 	file            string
 	watcher         *fsnotify.Watcher
 	monitorExitChan chan bool
@@ -131,15 +124,18 @@ type Config struct {
 
 // NewSystemFwConfig initializes config fields
 func (c *Config) NewSystemFwConfig(preLoadCb, reLoadCb func()) (*Config, error) {
-	var err error
+	var (
+		err error
+		mu  sync.Mutex
+	)
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Warning("Error creating firewall config watcher: %s", err)
 		return nil, err
 	}
 
-	c.Lock()
-	defer c.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 
 	c.file = "/etc/opensnitchd/system-fw.json"
 	c.monitorExitChan = make(chan bool, 1)
@@ -151,8 +147,9 @@ func (c *Config) NewSystemFwConfig(preLoadCb, reLoadCb func()) (*Config, error) 
 
 // LoadDiskConfiguration reads and loads the firewall configuration from disk
 func (c *Config) LoadDiskConfiguration(reload bool) {
-	c.Lock()
-	defer c.Unlock()
+	var mu sync.Mutex
+	mu.Lock()
+	defer mu.Unlock()
 
 	raw, err := ioutil.ReadFile(c.file)
 	if err != nil {
@@ -163,7 +160,11 @@ func (c *Config) LoadDiskConfiguration(reload bool) {
 	c.loadConfiguration(raw)
 	// we need to monitor the configuration file for changes, regardless if it's
 	// malformed or not.
-	c.watcher.Remove(c.file)
+	err = c.watcher.Remove(c.file)
+	if err != nil {
+		log.Error("Failed to stop filesystem watcher: %v", err)
+		return
+	}
 	if err := c.watcher.Add(c.file); err != nil {
 		log.Error("Could not watch firewall configuration: %s", err)
 		return
@@ -180,8 +181,9 @@ func (c *Config) LoadDiskConfiguration(reload bool) {
 // loadConfigutation reads the system firewall rules from disk.
 // Then the rules are added based on the configuration defined.
 func (c *Config) loadConfiguration(rawConfig []byte) {
-	c.SysConfig.Lock()
-	defer c.SysConfig.Unlock()
+	var mu sync.Mutex
+	mu.Lock()
+	defer mu.Unlock()
 
 	// delete old system rules, that may be different from the new ones
 	c.preloadCallback()
@@ -213,8 +215,9 @@ func (c *Config) SaveConfiguration(rawConfig string) error {
 
 // StopConfigWatcher stops the configuration watcher and stops the subroutine.
 func (c *Config) StopConfigWatcher() {
-	c.Lock()
-	defer c.Unlock()
+	var mu sync.Mutex
+	mu.Lock()
+	defer mu.Unlock()
 
 	if c.monitorExitChan != nil {
 		c.monitorExitChan <- true
@@ -222,12 +225,18 @@ func (c *Config) StopConfigWatcher() {
 	}
 
 	if c.watcher != nil {
-		c.watcher.Remove(c.file)
+		err := c.watcher.Remove(c.file)
+		if err != nil {
+			log.Error("Failed to stop filesystem watcher: %v", err)
+			return
+		}
+
 		c.watcher.Close()
 	}
 }
 
 func (c *Config) monitorConfigWorker() {
+	var mu sync.Mutex
 	for {
 		select {
 		case <-c.monitorExitChan:
@@ -240,7 +249,7 @@ func (c *Config) monitorConfigWorker() {
 	}
 Exit:
 	log.Debug("stop monitoring firewall config file")
-	c.Lock()
+	mu.Lock()
 	c.monitorExitChan = nil
-	c.Unlock()
+	mu.Unlock()
 }

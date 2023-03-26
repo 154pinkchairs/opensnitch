@@ -2,6 +2,7 @@ package iptables
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/evilsocket/opensnitch/daemon/firewall/common"
 	"github.com/evilsocket/opensnitch/daemon/firewall/config"
@@ -9,8 +10,9 @@ import (
 
 // CreateSystemRule creates the custom firewall chains and adds them to the system.
 func (ipt *Iptables) CreateSystemRule(rule *config.FwRule, table, chain, hook string, logErrors bool) bool {
-	ipt.chains.Lock()
-	defer ipt.chains.Unlock()
+	var mu sync.Mutex
+	mu.Lock()
+	defer mu.Unlock()
 	if rule == nil {
 		return false
 	}
@@ -28,7 +30,7 @@ func (ipt *Iptables) CreateSystemRule(rule *config.FwRule, table, chain, hook st
 	ipt.RunRule(NEWCHAIN, common.EnableRule, logErrors, []string{chainName, "-t", table})
 
 	// Insert the rule at the top of the chain
-	if err4, err6 := ipt.RunRule(INSERT, common.EnableRule, logErrors, []string{hook, "-t", table, "-j", chainName}); err4 == nil && err6 == nil {
+	if err := ipt.RunRule(INSERT, common.EnableRule, logErrors, []string{hook, "-t", table, "-j", chainName}); err == nil {
 		ipt.chains.Rules[table+"-"+chainName] = &SystemRule{
 			Table: table,
 			Chain: chain,
@@ -67,8 +69,9 @@ func (ipt *Iptables) AddSystemRules(reload, backupExistingChains bool) {
 // If force is false and the rule has not been previously added,
 // it won't try to delete the rules. Otherwise it'll try to delete them.
 func (ipt *Iptables) DeleteSystemRules(force, backupExistingChains, logErrors bool) {
-	ipt.chains.Lock()
-	defer ipt.chains.Unlock()
+	var mu sync.Mutex
+	mu.Lock()
+	defer mu.Unlock()
 
 	for _, fwCfg := range ipt.SysConfig.SystemRules {
 		if fwCfg.Rule == nil {
@@ -102,7 +105,7 @@ func (ipt *Iptables) DeleteSystemRules(force, backupExistingChains, logErrors bo
 }
 
 // DeleteSystemRule deletes a new rule.
-func (ipt *Iptables) DeleteSystemRule(action Action, rule *config.FwRule, table, chain string, enable bool) (err4, err6 error) {
+func (ipt *Iptables) DeleteSystemRule(action Action, rule *config.FwRule, table, chain string, enable bool) *common.FirewallError {
 	chainName := SystemRulePrefix + "-" + chain
 	if table == "" {
 		table = "filter"
@@ -120,12 +123,13 @@ func (ipt *Iptables) DeleteSystemRule(action Action, rule *config.FwRule, table,
 }
 
 // AddSystemRule inserts a new rule.
-func (ipt *Iptables) AddSystemRule(action Action, rule *config.FwRule, table, chain string, enable bool) (err4, err6 error) {
+func (ipt *Iptables) AddSystemRule(action Action, rule *config.FwRule, table, chain string, enable bool) *common.FirewallError {
 	if rule == nil {
-		return nil, nil
+		return nil
 	}
-	ipt.RLock()
-	defer ipt.RUnlock()
+	var rmu sync.RWMutex
+	rmu.RLock()
+	defer rmu.RUnlock()
 
 	chainName := SystemRulePrefix + "-" + chain
 	if table == "" {

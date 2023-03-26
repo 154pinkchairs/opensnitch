@@ -49,7 +49,6 @@ type SystemRule struct {
 // SystemChains keeps track of the fw rules that have been added to the system.
 type SystemChains struct {
 	Rules map[string]*SystemRule
-	sync.RWMutex
 }
 
 // Iptables struct holds the fields of the iptables fw
@@ -64,8 +63,6 @@ type Iptables struct {
 	regexSystemRulesQuery *regexp.Regexp
 
 	chains SystemChains
-
-	sync.Mutex
 }
 
 // Fw initializes a new Iptables object
@@ -140,10 +137,10 @@ func IsAvailable() error {
 
 // EnableInterception adds fw rules to intercept connections.
 func (ipt *Iptables) EnableInterception() {
-	if err4, err6 := ipt.QueueConnections(common.EnableRule, true); err4 != nil || err6 != nil {
-		log.Fatal("Error while running conntrack firewall rule: %s %s", err4, err6)
-	} else if err4, err6 = ipt.QueueDNSResponses(common.EnableRule, true); err4 != nil || err6 != nil {
-		log.Error("Error while running DNS firewall rule: %s %s", err4, err6)
+	if err := ipt.QueueConnections(common.EnableRule, true); err != nil {
+		log.Fatal("Error while running conntrack firewall rule: %s %s", err)
+	} else if err = ipt.QueueDNSResponses(common.EnableRule, true); err != nil {
+		log.Error("Error while running DNS firewall rule: %s %s", err)
 	}
 	// start monitoring firewall rules to intercept network traffic
 	ipt.NewRulesChecker(ipt.AreRulesLoaded, ipt.reloadRulesCallback)
